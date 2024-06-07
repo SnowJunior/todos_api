@@ -1,76 +1,46 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
 
-	"github.com/SnowJunior/todos/dtos"
 	"github.com/gofiber/fiber/v2"
 	"github.com/joho/godotenv"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-func main() {
-	fmt.Println("Starting Go new")
-	app := fiber.New()
+var collection *mongo.Collection
 
+func main() {
 	err := godotenv.Load(".env")
 	if err != nil {
-		log.Fatal("Error loading .env file")
+		log.Fatal("Failed to load env file:", err)
 	}
 
-	Port := os.Getenv("PORT")
+	MONGODB_URI := os.Getenv("MONGODB_URI")
+	clientOptions := options.Client().ApplyURI(MONGODB_URI)
+	client, err := mongo.Connect(context.Background(), clientOptions)
 
-	todos := []dtos.Todo{}
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	app.Get("/api/todos", func(c *fiber.Ctx) error {
-		return c.Status(200).JSON(todos)
-	})
+	err = client.Ping(context.Background(),nil)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	// Create a todo
-	app.Post("/api/todos", func(c *fiber.Ctx) error {
-		todo := &dtos.Todo{}
-		c.BodyParser(todo)
+	fmt.Println("Connected to mongoDB")
 
-		if err := c.BodyParser(todo); err != nil {
-			return err
-		}
+	collection = client.Database("golang_db").Collection("todos")
 
-		if todo.Body == "" {
-			return c.Status(400).JSON(fiber.Map{"error": "Body is required"})
-		}
+	app := fiber.New()
 
-		todo.ID = len(todos) + 1
-		todos = append(todos, *todo)
-
-		return c.Status(201).JSON(todo)
-	})
-
-	//Update a todo
-	app.Patch("/api/todos/:id", func(c *fiber.Ctx) error {
-		id := c.Params("id")
-
-		for i, todo := range todos {
-			if fmt.Sprint(todo.ID) == id {
-				todos[i].Completed = true
-				return c.Status(200).JSON(todos[i])
-			}
-		}
-		return c.Status(404).JSON(fiber.Map{"error": "todo not found"})
-	})
-
-	// delete a todo
-	app.Delete("/api/todos/:id", func(c *fiber.Ctx) error {
-		id := c.Params("id")
-
-		for i, todo := range todos {
-			if fmt.Sprint(todo.ID) == id {
-				todos = append(todos[:i], todos[i+1:]...)
-				return c.Status(200).JSON(fiber.Map{"success": true})
-			}
-		}
-		return c.Status(404).JSON(fiber.Map{"error": "Todo not found"})
-	})
-
-	log.Fatal(app.Listen(":"+Port))
+	app.Get("/api/todos", getTodos)
+	app.Post("/api/todos", createTodo)
+	app.Patch("/api/todos/:id", updateTodo)
+	app.Delete("/api/todos/:id", deleteTodo)
 }
